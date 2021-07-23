@@ -11,6 +11,7 @@ from argparse import Namespace
 from f110_gym.envs import F110Env
 
 from cps_fuzz_tester import SimulationState, run_fuzz_testing
+from smooth_blocking_vs_blocking import LaneSwitcherPlanner
 
 class GapFollower:
     BUBBLE_RADIUS = 160 # was 260
@@ -139,7 +140,7 @@ class F110GymSim(SimulationState):
             list of 3-tuples, label, min, max
         '''
 
-        return ('Ego Completed Percent', 0, 100), ('Opponent Behind Percent', -1.5, 1.5)
+        return ('Ego Completed Percent', 0, 100), ('Opponent Behind Percent', -5, 5)
         
     def __init__(self):
         # config
@@ -161,16 +162,23 @@ class F110GymSim(SimulationState):
 
         #env.render()
 
-        ego_planner = GapFollower()
-        opp_planner = GapFollower()
+        ego_planner = LaneSwitcherPlanner(conf, lanes)
+        opp_planner = LaneSwitcherPlanner(conf, lanes)
 
         # do first action here since we have obs
         ego_lidar = obs['scans'][0]
         opp_lidar = obs['scans'][1]
+        ego_pose = obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0]
+        opp_pose = obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1]
+        ego_planner.update(ego_pose, opp_pose)
+        opp_planner.update(opp_pose, ego_pose)
 
-        speed, steer = ego_planner.process_lidar(ego_lidar)
-        opp_speed, opp_steer = opp_planner.process_lidar(opp_lidar)
+        # print('decision', decision, 'current lane', ego_switcher.current_lane)
 
+        speed, steer = ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0])
+        opp_speed, opp_steer = opp_planner.plan(obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1])
+        # env.add_render_callback(ego_planner.render_waypoints)
+        # env.add_render_callback(opp_planner.render_waypoints)
         self.error = done
         self.num_steps = 0
         self.next_cmds = [[steer, speed], [opp_steer, opp_speed]]
@@ -202,9 +210,16 @@ class F110GymSim(SimulationState):
 
             ego_lidar = obs['scans'][0]
             opp_lidar = obs['scans'][1]
+            ego_pose = obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0]
+            opp_pose = obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1]
 
-            speed, steer = self.ego_planner.process_lidar(ego_lidar)
-            opp_speed, opp_steer = self.opp_planner.process_lidar(opp_lidar)
+            self.ego_planner.update(ego_pose, opp_pose)
+            self.opp_planner.update(opp_pose, ego_pose)
+
+            # speed, steer = self.ego_planner.process_lidar(ego_lidar)
+            # opp_speed, opp_steer = self.opp_planner.process_lidar(opp_lidar)
+            speed, steer = self.ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0])
+            opp_speed, opp_steer = self.opp_planner.plan(obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1])
 
             if cmd == 'opp_slower':
                 opp_speed *= 0.8

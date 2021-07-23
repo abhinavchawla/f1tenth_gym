@@ -4,6 +4,7 @@ Generic fuzz tester for CPS systems
 
 from typing import Dict, List, Tuple, Optional
 
+from scipy.spatial import Voronoi
 import os
 import sys
 import time
@@ -20,6 +21,10 @@ from matplotlib import animation
 from matplotlib.collections import LineCollection
 from matplotlib.path import Path
 from matplotlib.widgets import Button
+from scipy.spatial.qhull import QhullError
+
+from fuzz_engine.plotutils import voronoi_plot_2d
+
 
 class SimulationState(ABC):
     'abstract simulation state class'
@@ -89,6 +94,10 @@ class Artists:
         self.black_xs, = ax.plot([], [], 'kx', ms=6, zorder=3)
         self.artist_list.append(self.black_xs)
 
+        self.voronoi_data: Tuple[List[float], List[float]] = ([], [])
+        self.voronoi_plot, = ax.plot([], [], 'g^', ms=6, zorder=5)
+        self.artist_list.append(self.voronoi_plot)
+
         self.init_from_node(root)
 
     def init_from_node(self, node):
@@ -123,6 +132,29 @@ class Artists:
         ys = [rand_pt[1], obs[1]]
 
         self.rand_pt_marker.set_data(xs, ys)
+
+    def update_voronoi_points(self, node_points, vor, ax):
+        'update random point marker'
+        self.voronoi_data[0].clear()
+        self.voronoi_data[1].clear()
+
+        for node in node_points:
+            self.voronoi_data[0].append(node[0])
+            self.voronoi_data[1].append(node[1])
+        self.voronoi_plot.set_data(*self.voronoi_data)
+
+        finite_segments, infinite_segments = voronoi_plot_2d(vor, ax=ax, show_vertices=False, line_colors='orange',
+                              line_width=2, line_alpha=0.6, point_size=2)
+        print(len(self.artist_list))
+        if len(self.artist_list)==8:
+            self.artist_list.pop()
+            self.artist_list.pop()
+        print(finite_segments)
+        ax.add_collection(finite_segments)
+        self.artist_list.append(finite_segments)
+        ax.add_collection(infinite_segments)
+        self.artist_list.append(infinite_segments)
+
 
     def update_blue_circle(self, pt):
         'update random point marker'
@@ -349,6 +381,18 @@ class TreeSearch:
         self.ax = None
         self.init_plot()
 
+
+    def update_voronoi_points(self):
+        'update voronoi points'
+        node_points = []
+        for node in self.leaves:
+            node_points.append(node.obs)
+        try:
+            vor = Voronoi(node_points)
+            self.artists.update_voronoi_points(vor.vertices, vor, self.ax)
+        except QhullError:
+            pass
+
     def init_plot(self):
         'initalize plotting'
 
@@ -448,6 +492,7 @@ class TreeSearch:
                     # expand all children
                     for cmd in TreeNode.sim_state_class.get_cmds():
                         node.expand_child(self.artists, cmd, self.obs_limits_box)
+
             else:
                 # always from start strategy
                 status = self.cur_node.status
@@ -472,7 +517,6 @@ class TreeSearch:
                 self.cur_node = self.cur_node.children[cmd]
 
                 self.artists.update_rand_pt_marker(self.cur_node.obs, self.cur_node.obs)
-
         return self.artists.artist_list
 
     def run(self):
