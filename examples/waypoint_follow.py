@@ -2,9 +2,13 @@ import time
 import yaml
 import gym
 import numpy as np
+import mockrospy as rospy
 from argparse import Namespace
+import disparity_extender_head_to_head
 
 from numba import njit
+
+from sensor_msgs import LaserScan, drive_params
 
 """
 Planner Helpers
@@ -182,6 +186,11 @@ class PurePursuitPlanner:
 
         return speed, steering_angle
 
+driving_params = drive_params(0,0)
+def driving_params_callback(params):
+    global driving_params
+    driving_params = params
+
 
 if __name__ == '__main__':
 
@@ -195,12 +204,20 @@ if __name__ == '__main__':
     env.render()
     planner = PurePursuitPlanner(conf, 0.17145+0.15875)
 
+    planner_disparity = disparity_extender_head_to_head.DisparityExtenderDriving()
     laptime = 0.0
     start = time.time()
+    pub = rospy.Publisher('scan', LaserScan, queue_size=5)
+    sub = rospy.Subscriber('drive_parameters', drive_params, driving_params_callback)
+    planner_disparity.run()
+
 
     while not done:
-        speed, steer = planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0], work['tlad'], work['vgain'])
-        obs, step_reward, done, info = env.step(np.array([[steer, speed]]))
+        # speed, steer = planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0], work['tlad'], work['vgain'])
+        print(driving_params.angle, driving_params.velocity)
+        obs, step_reward, done, info = env.step(np.array([[driving_params.angle, driving_params.velocity]]))
+        # print(obs["scans"][0])
+        pub.publish(LaserScan(obs["scans"][0].tolist()))
         laptime += step_reward
         env.render(mode='human')
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
