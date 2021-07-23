@@ -5,8 +5,6 @@ import numpy as np
 import math
 from argparse import Namespace
 
-from pyglet.gl import GL_POINTS, GL_LINES
-
 from pure_pursuit import nearest_point_on_trajectory, get_actuation, first_point_on_trajectory_intersecting_circle
 
 class SmoothPurePursuitPlanner:
@@ -141,7 +139,7 @@ class LaneSwitcherPlanner:
             if len(self.drawn_waypoints) < points.shape[0]:
                 #b = e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[i, 0], scaled_points[i, 1], 0.]),
                 #    ('c3B/stream', [183, 193, 222]))
-                b = e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[i, 0], scaled_points[i, 1], 0.]),
+                b = e.batch.add(1, 0, None, ('v3f/stream', [scaled_points[i, 0], scaled_points[i, 1], 0.]),
                                 ('c3B/stream', self.wp_color))
                 self.drawn_waypoints.append(b)
             else:
