@@ -9,8 +9,9 @@ from math import sqrt
 
 from argparse import Namespace
 from f110_gym.envs import F110Env
+from matplotlib import pyplot as plt
 
-from cps_fuzz_tester import SimulationState, run_fuzz_testing
+from cps_fuzz_tester import SimulationState, run_fuzz_testing, calculate_coverage
 from smooth_blocking_vs_blocking import LaneSwitcherPlanner
 
 class GapFollower:
@@ -273,7 +274,7 @@ class F110GymSim(SimulationState):
 
         for i in range(len(self.center_lane) - 1):
             x1, y1 = self.center_lane[i]
-            x2, y2 = self.center_lane[i]
+            x2, y2 = self.center_lane[i+1]
 
             dx1 = (x1 - own_x)
             dy1 = (y1 - own_y)
@@ -284,14 +285,13 @@ class F110GymSim(SimulationState):
             dist_sq1 = dx1*dx1 + dy1*dy1
             dist_sq2 = dx2*dx2 + dy2*dy2
             dist_sq = dist_sq1 + dist_sq2
-
             if dist_sq < min_dist_sq:
                 min_dist_sq = dist_sq
                 # 100 * min_index / num_waypoints
                 
                 rv = 100 * i / num_waypoints
 
-                # add the fraction completed betwen the waypints
+                # add the fraction completed between the waypoints
                 dist1 = sqrt(dist_sq1)
                 dist2 = sqrt(dist_sq2)
                 frac = dist1 / (dist1 + dist2)
@@ -306,7 +306,19 @@ def main():
 
     F110GymSim.render_on = True
 
-    run_fuzz_testing(F110GymSim, always_from_start=False)
+    prefix_filename_1 = 'root_rrt'
+    prefix_filename_2 = 'root_random'
+
+    for i in range(1):
+        run_fuzz_testing(F110GymSim, seed=i, always_from_start=False, filename=prefix_filename_1+str(i)+'.pkl')
+        run_fuzz_testing(F110GymSim, seed=i, always_from_start=True, filename=prefix_filename_2+str(i)+'.pkl')
+
+    for i in range(1):
+        calculate_coverage(prefix_filename_1 + str(i)+'.pkl')
+        calculate_coverage(prefix_filename_2 + str(i)+'.pkl')
+    plt.tight_layout()
+    plt.show()
+
 
 if __name__ == '__main__':
     main()

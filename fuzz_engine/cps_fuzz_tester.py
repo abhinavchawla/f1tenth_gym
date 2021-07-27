@@ -23,6 +23,7 @@ from matplotlib.path import Path
 from matplotlib.widgets import Button
 from scipy.spatial.qhull import QhullError
 
+import coverage
 from fuzz_engine.plotutils import voronoi_plot_2d
 
 
@@ -145,11 +146,9 @@ class Artists:
 
         finite_segments, infinite_segments = voronoi_plot_2d(vor, ax=ax, show_vertices=False, line_colors='orange',
                               line_width=2, line_alpha=0.6, point_size=2)
-        print(len(self.artist_list))
         if len(self.artist_list)==8:
             self.artist_list.pop()
             self.artist_list.pop()
-        print(finite_segments)
         ax.add_collection(finite_segments)
         self.artist_list.append(finite_segments)
         ax.add_collection(infinite_segments)
@@ -202,7 +201,7 @@ class TreeNode:
 
     sim_state_class: Optional[SimulationState] = None
 
-    def __init__(self, state: SimulationState, cmd_from_parent=None, parent=None, limits_box=None):
+    def __init__(self, state: SimulationState, cmd_from_parent=None, parent=None, limits_box=None, coverage=False):
         assert TreeNode.sim_state_class is not None, "TreeNode.sim_state_class should be set first"
         
         self.state: SimulationState = state
@@ -210,6 +209,8 @@ class TreeNode:
         self.status: str = state.get_status()
         self.limits_box = limits_box
         self.cmd_from_parent = cmd_from_parent
+        if coverage:
+            self.coverage = Coverage()
 
         if limits_box is not None and is_out_of_bounds(self.obs, limits_box):
             self.status = 'out_of_bounds'
@@ -330,7 +331,7 @@ def load_root(filename, sim_state_class):
     'load root node from pickled file'
 
     # important for initializing renderer
-    root = TreeNode(sim_state_class())
+    root = TreeNode(sim_state_class(), coverage=True)
 
     try:
         with open(filename, "rb") as f:
@@ -360,15 +361,61 @@ def save_root(filename, root):
     print(f"saved {count} nodes ({round(mb, 2)} MB, {round(kb_per, 1)} KB per state) in " + \
           f"{round(1000 * diff, 1)} ms to {filename}")
 
+class Coverage:
+    figure, axis = plt.subplots(2, 2)
+    def __init__(self):
+        self.heights = []
+        self.widths = []
+        self.crashes = []
+        self.max_dist =[]
+        self.nodes = []
+
+    def setType(self, strategy):
+        if strategy == 'RRT':
+            self.color = 'green'
+            self.label = 'RRT strategy'
+        else:
+            self.color ='red'
+            self.label ='random strategy'
+        print(strategy)
+        print(self.color)
+        print(self.label)
+
+    def add(self, height, width, crash, dist, node_cnt):
+        self.heights.append(height)
+        self.widths.append(width)
+        self.crashes.append(crash)
+        self.max_dist.append(dist)
+        self.nodes.append(node_cnt)
+
+    def plot(self):
+
+        # For Sine Function
+        assert self.color is not None
+        assert self.label is not None
+
+        Coverage.axis[0, 0].plot(self.nodes, self.heights, color=self.color, label=self.label)
+        Coverage.axis[0, 0].title.set_text("Heights")
+
+        Coverage.axis[0, 1].plot(self.nodes, self.widths, color=self.color, label=self.label)
+        Coverage.axis[0, 1].set_title("Widths")
+
+        Coverage.axis[1, 0].plot(self.nodes, self.crashes, color=self.color, label=self.label)
+        Coverage.axis[1, 0].title.set_text("Crashes")
+
+        Coverage.axis[1, 1].plot(self.nodes, self.max_dist, color=self.color, label=self.label)
+        Coverage.axis[1, 1].set_title("Max distance")
+        Coverage.axis[0,1].legend(loc='center left', bbox_to_anchor=(1, 0.5))
+
 class TreeSearch:
     'performs and draws the tree search'
 
-    def __init__(self, seed=0, always_from_start=False):
+    def __init__(self, seed=0, always_from_start=False, filename='root.pkl'):
         self.always_from_start = always_from_start
         self.cur_node = None # used if always_from_start = True
 
         self.rng = np.random.default_rng(seed=seed)
-        self.tree_filename = 'root.pkl'
+        self.tree_filename = filename
         self.root = None
         self.artists = None
 
@@ -380,12 +427,21 @@ class TreeSearch:
         self.fig = None
         self.ax = None
         self.init_plot()
+        self.total_crashes = 0
 
+    def load_leaves(self, root):
+        if not root.children:
+            if root.status == 'ok':
+                return [root]
+        leaves = []
+        for c in root.children.values():
+            leaves+=self.load_leaves(c)
+        return leaves
 
     def update_voronoi_points(self):
         'update voronoi points'
         node_points = []
-        for node in self.leaves:
+        for node in self.load_leaves(self.root):
             node_points.append(node.obs)
         try:
             vor = Voronoi(node_points)
@@ -472,7 +528,10 @@ class TreeSearch:
 
     def animate(self, frame):
         'animate function for funcAnimation'
-
+        self.get_coverage()
+        if coverage.total_nodes(self.root) > 100:
+            plt.savefig(self.tree_filename+'.png')
+            plt.close(self.fig)
         if frame > 0 and not self.paused:
             if frame % 10 == 0:
                 save_root(self.tree_filename, self.root)
@@ -492,6 +551,7 @@ class TreeSearch:
                     # expand all children
                     for cmd in TreeNode.sim_state_class.get_cmds():
                         node.expand_child(self.artists, cmd, self.obs_limits_box)
+                    # self.update_voronoi_points()
 
             else:
                 # always from start strategy
@@ -526,19 +586,48 @@ class TreeSearch:
 
         if self.always_from_start:
             self.cur_node = self.root
+            self.root.coverage.setType('Random')
+        else:
+            self.root.coverage.setType('RRT')
 
         self.artists = Artists(self.ax, self.root)
 
         # plot root point (not animated)
         self.ax.plot([self.root.obs[0]], [self.root.obs[1]], 'ko', ms=5)
 
-        anim = animation.FuncAnimation(self.fig, self.animate, frames=sys.maxsize, interval=1, blit=True)
+        anim = animation.FuncAnimation(self.fig, self.animate, frames=sys.maxsize, interval=1, blit=True, repeat=False)
         plt.show()
 
-def run_fuzz_testing(sim_state_class, seed=0, always_from_start=False):
+    def get_coverage(self):
+        height = coverage.find_height_of_tree(self.root)
+        width = coverage.find_max_distance(self.root, 1)
+        max_dist = coverage.find_max_distance(self.root, 0)
+        crashes = coverage.total_crashes(self.root)
+        nodes = coverage.total_nodes(self.root)
+
+        self.root.coverage.add(height, width, crashes, max_dist, nodes)
+        # print("Current Height: ", height)
+        # print("Current Width: ", width)
+        # print("Current Crashes: ", crashes)
+        # print("Current max_dist: ", max_dist)
+        # print("Current nodes: ", nodes)
+
+
+def run_fuzz_testing(sim_state_class, seed=0, always_from_start=False, filename='root.pkl'):
     'run fuzz testing with the given simulation state class'
 
     TreeNode.sim_state_class = sim_state_class
-    search = TreeSearch(seed, always_from_start)
+    search = TreeSearch(seed, always_from_start, filename)
 
     search.run()
+
+def calculate_coverage(filename):
+    'calculate coverage from pickled file'
+
+    try:
+        with open(filename, "rb") as f:
+            root = pickle.load(f)
+            root.coverage.plot()
+    except FileNotFoundError:
+        pass
+
