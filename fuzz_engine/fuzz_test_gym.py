@@ -11,6 +11,7 @@ from argparse import Namespace
 from f110_gym.envs import F110Env
 from matplotlib import pyplot as plt
 
+from FrenetPlanner_Multi_Vehicle import FrenetPlaner, FrenetControllers, PurePursuitPlanner
 from cps_fuzz_tester import SimulationState, run_fuzz_testing, calculate_coverage
 from smooth_blocking_vs_blocking import LaneSwitcherPlanner
 
@@ -141,43 +142,49 @@ class F110GymSim(SimulationState):
             list of 3-tuples, label, min, max
         '''
 
-        return ('Ego Completed Percent', 0, 100), ('Opponent Behind Percent', -5, 5)
+        return ('Ego Completed Percent', 0, 100), ('Opponent Behind Percent', -10, 10)
         
     def __init__(self):
         # config
-        with open('config.yaml') as file:
+        self.work = {'mass': 3.463388126201571, 'lf': 0.15597534362552312, 'tlad': 0.82461887897713965, 'vgain': 0.25}
+        with open('config_Spielberg_map.yaml') as file:
             conf_dict = yaml.load(file, Loader=yaml.FullLoader)
         conf = Namespace(**conf_dict)
+
 
         #env = gym.make('f110_gym:f110-v0', map=conf.map_path, map_ext=conf.map_ext, num_agents=2)
         env = F110Env(map=conf.map_path, map_ext=conf.map_ext, num_agents=2)
 
-        env.add_render_callback(render_callback)
+        # env.add_render_callback(render_callback)
 
         obs, _step_reward, done, _info = env.reset(np.array([[conf.sx, conf.sy, conf.stheta],
                                                            [conf.sx2, conf.sy2, conf.stheta2]]))
 
-        lanes = np.loadtxt(conf.wpt_path, delimiter=conf.wpt_delim, skiprows=conf.wpt_rowskip)
+        lanes = np.loadtxt(conf.wpt_path, delimiter=conf.wpt_delim, skiprows=1)
         center_lane_index = 1
         self.center_lane = lanes[:, center_lane_index*3:center_lane_index*3+2]
 
         #env.render()
 
-        ego_planner = LaneSwitcherPlanner(conf, lanes)
-        opp_planner = LaneSwitcherPlanner(conf, lanes)
+        ego_planner = FrenetPlaner(conf, env, 0.17145 + 0.15875)
+        ego_controller = FrenetControllers(conf, 0.17145 + 0.15875)
+        opp_planner = PurePursuitPlanner(conf, 0.17145 + 0.15875)
 
         # do first action here since we have obs
-        ego_lidar = obs['scans'][0]
-        opp_lidar = obs['scans'][1]
-        ego_pose = obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0]
-        opp_pose = obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1]
-        ego_planner.update(ego_pose, opp_pose)
-        opp_planner.update(opp_pose, ego_pose)
+        # ego_lidar = obs['scans'][0]
+        # opp_lidar = obs['scans'][1]
+        # ego_pose = obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0]
+        # opp_pose = obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1]
+        # ego_planner.update(ego_pose, opp_pose)
+        # opp_planner.update(opp_pose, ego_pose)
 
         # print('decision', decision, 'current lane', ego_switcher.current_lane)
+        path = ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0], obs['linear_vels_x'][0],
+                            obs['poses_x'][1], obs['poses_y'][1])
 
-        speed, steer = ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0])
-        opp_speed, opp_steer = opp_planner.plan(obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1])
+        speed, steer = ego_planner.control(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0], obs['linear_vels_x'][0], path, ego_controller)
+        opp_speed, opp_steer = opp_planner.plan(obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1], self.work['tlad'],
+                                       self.work['vgain'])
         # env.add_render_callback(ego_planner.render_waypoints)
         # env.add_render_callback(opp_planner.render_waypoints)
         self.error = done
@@ -186,19 +193,21 @@ class F110GymSim(SimulationState):
         self.env = env
         self.ego_planner = ego_planner
         self.opp_planner = opp_planner
+        self.ego_controller = ego_controller
 
     def render(self):
         'display visualization'
 
-        self.env.render(mode='human')
+        self.env.render(mode='human_fast')
         time.sleep(0.1)
             
     def step_sim(self, cmd):
         'step the simulation state'
 
         assert not self.error
+        control_count = 15
 
-        for i in range(100):
+        for i in range(106):
             obs, _step_reward, done, _info = self.env.step(np.array(self.next_cmds))
 
             if F110GymSim.render_on:
@@ -209,18 +218,26 @@ class F110GymSim(SimulationState):
                 self.error = True # crashed!
                 break
 
-            ego_lidar = obs['scans'][0]
-            opp_lidar = obs['scans'][1]
-            ego_pose = obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0]
-            opp_pose = obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1]
-
-            self.ego_planner.update(ego_pose, opp_pose)
-            self.opp_planner.update(opp_pose, ego_pose)
+            # ego_lidar = obs['scans'][0]
+            # opp_lidar = obs['scans'][1]
+            # ego_pose = obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0]
+            # opp_pose = obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1]
+            #
+            # self.ego_planner.update(ego_pose, opp_pose)
+            # self.opp_planner.update(opp_pose, ego_pose)
 
             # speed, steer = self.ego_planner.process_lidar(ego_lidar)
             # opp_speed, opp_steer = self.opp_planner.process_lidar(opp_lidar)
-            speed, steer = self.ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0])
-            opp_speed, opp_steer = self.opp_planner.plan(obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1])
+            if control_count == 15:
+                path = self.ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0],
+                                    obs['linear_vels_x'][0], obs['poses_x'][1], obs['poses_y'][1])
+                control_count = 0
+
+            speed, steer = self.ego_planner.control(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0],
+                                           obs['linear_vels_x'][0], path, self.ego_controller)
+            opp_speed, opp_steer = self.opp_planner.plan(obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1], self.work['tlad'],
+                                           self.work['vgain'])
+            control_count = control_count + 1
 
             if cmd == 'opp_slower':
                 opp_speed *= 0.8

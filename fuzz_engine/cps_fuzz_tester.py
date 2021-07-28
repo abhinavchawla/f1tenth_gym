@@ -332,10 +332,10 @@ def load_root(filename, sim_state_class):
 
     # important for initializing renderer
     root = TreeNode(sim_state_class(), coverage=True)
-
     try:
         with open(filename, "rb") as f:
             root = pickle.load(f)
+            print(sys.getsizeof(root))
     except FileNotFoundError:
         pass
 
@@ -529,7 +529,7 @@ class TreeSearch:
     def animate(self, frame):
         'animate function for funcAnimation'
         self.get_coverage()
-        if coverage.total_nodes(self.root) > 100:
+        if coverage.total_nodes(self.root) > 1000:
             plt.savefig(self.tree_filename+'.png')
             plt.close(self.fig)
         if frame > 0 and not self.paused:
