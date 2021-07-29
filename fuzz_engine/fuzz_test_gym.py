@@ -12,6 +12,7 @@ from f110_gym.envs import F110Env
 from matplotlib import pyplot as plt
 
 from FrenetPlanner_Multi_Vehicle import FrenetPlaner, FrenetControllers, PurePursuitPlanner
+from GraphPlanner_MultiVehiclepy import GraphBasedPlanner, Controllers
 from cps_fuzz_tester import SimulationState, run_fuzz_testing, calculate_coverage
 from smooth_blocking_vs_blocking import LaneSwitcherPlanner
 
@@ -146,7 +147,8 @@ class F110GymSim(SimulationState):
         
     def __init__(self):
         # config
-        self.work = {'mass': 3.463388126201571, 'lf': 0.15597534362552312, 'tlad': 0.82461887897713965, 'vgain': 0.25}
+        self.work = {'mass': 3.463388126201571, 'lf': 0.15597534362552312, 'tlad': 0.82461887897713965, 'vgain': 0.65}
+
         with open('config_Spielberg_map.yaml') as file:
             conf_dict = yaml.load(file, Loader=yaml.FullLoader)
         conf = Namespace(**conf_dict)
@@ -166,8 +168,8 @@ class F110GymSim(SimulationState):
 
         #env.render()
 
-        ego_planner = FrenetPlaner(conf, env, 0.17145 + 0.15875)
-        ego_controller = FrenetControllers(conf, 0.17145 + 0.15875)
+        ego_planner = GraphBasedPlanner(conf)
+        ego_controller = Controllers(conf, 0.17145 + 0.15875)
         opp_planner = PurePursuitPlanner(conf, 0.17145 + 0.15875)
 
         # do first action here since we have obs
@@ -179,10 +181,13 @@ class F110GymSim(SimulationState):
         # opp_planner.update(opp_pose, ego_pose)
 
         # print('decision', decision, 'current lane', ego_switcher.current_lane)
-        path = ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0], obs['linear_vels_x'][0],
-                            obs['poses_x'][1], obs['poses_y'][1])
+        obstacle1 = [obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1], obs['linear_vels_x'][0]]
+        # Run graph based planner. Receive set of trajectories and final selection
+        traj_set, sel_action = ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0],
+                                            obs['linear_vels_x'][0], obstacle1)
 
-        speed, steer = ego_planner.control(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0], obs['linear_vels_x'][0], path, ego_controller)
+        speed, steer = ego_planner.control(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0],obs['linear_vels_x'][0],traj_set, sel_action, ego_controller)
+
         opp_speed, opp_steer = opp_planner.plan(obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1], self.work['tlad'],
                                        self.work['vgain'])
         # env.add_render_callback(ego_planner.render_waypoints)
@@ -229,12 +234,14 @@ class F110GymSim(SimulationState):
             # speed, steer = self.ego_planner.process_lidar(ego_lidar)
             # opp_speed, opp_steer = self.opp_planner.process_lidar(opp_lidar)
             if control_count == 15:
-                path = self.ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0],
-                                    obs['linear_vels_x'][0], obs['poses_x'][1], obs['poses_y'][1])
+                obstacle1 = [obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1], obs['linear_vels_x'][0]]
+                # Run graph based planner. Receive set of trajectories and final selection
+                traj_set, sel_action = self.ego_planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0],
+                                                    obs['linear_vels_x'][0], obstacle1)
+                # Reset Planner counter to zero
                 control_count = 0
 
-            speed, steer = self.ego_planner.control(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0],
-                                           obs['linear_vels_x'][0], path, self.ego_controller)
+            speed, steer = self.ego_planner.control(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0],obs['linear_vels_x'][0],traj_set, sel_action, self.ego_controller)
             opp_speed, opp_steer = self.opp_planner.plan(obs['poses_x'][1], obs['poses_y'][1], obs['poses_theta'][1], self.work['tlad'],
                                            self.work['vgain'])
             control_count = control_count + 1

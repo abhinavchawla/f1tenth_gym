@@ -251,7 +251,7 @@ class TreeNode:
 
         sx, sy = self.obs[0:2]
 
-        child_state = deepcopy(self.state)
+        child_state = pickle.loads(pickle.dumps(self.state))
 
         child_state.step_sim(cmd)
 
@@ -533,7 +533,7 @@ class TreeSearch:
             plt.savefig(self.tree_filename+'.png')
             plt.close(self.fig)
         if frame > 0 and not self.paused:
-            if frame % 10 == 0:
+            if frame % 100 == 0:
                 save_root(self.tree_filename, self.root)
 
             if self.cur_node is None:
