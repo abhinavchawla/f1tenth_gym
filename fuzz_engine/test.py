@@ -3,15 +3,18 @@ import pickle
 import matplotlib.pyplot as plt
 import numpy as np
 
-from scipy.spatial import Voronoi, voronoi_plot_2d, ConvexHull
+from scipy.spatial import Voronoi, ConvexHull
+from shapely.geometry import Polygon, MultiPoint, Point
 
 from fuzz_engine.cps_fuzz_tester import TreeNode
 from fuzz_engine.fuzz_test_gym import F110GymSim
 
-
 def load_leaves(root, limits_box):
     if not root.children and root.status == 'ok':
-        return [normalize_point(limits_box, root.obs)]
+        print(root.obs)
+        leaf = [normalize_point(limits_box, root.obs)]
+        print(leaf)
+        return leaf
     leaves = []
     for node in root.children.values():
         leaves += load_leaves(node, limits_box)
@@ -57,7 +60,7 @@ def voronoi_finite_polygons_2d(vor, radius=None):
         all_ridges.setdefault(p1, []).append((p2, v1, v2))
         all_ridges.setdefault(p2, []).append((p1, v1, v2))
 
-    print(all_ridges)
+    # print(all_ridges)
     # Reconstruct infinite regions
     for p1, region in enumerate(vor.point_region):
         vertices = vor.regions[region]
@@ -86,8 +89,16 @@ def voronoi_finite_polygons_2d(vor, radius=None):
 
             midpoint = vor.points[[p1, p2]].mean(axis=0)
             direction = np.sign(np.dot(midpoint - center, n)) * n
+            print("Vertex: ", vor.vertices[v2])
+
+            print("Direction: ", direction)
             far_point = vor.vertices[v2] + direction * radius
-            print(far_point)
+            print("Check1: ", lineRayIntersectionPoint(vor.vertices[v2], direction, np.array([0,0]), np.array([0,1])))
+            print("Check2: ", lineRayIntersectionPoint(vor.vertices[v2], direction, np.array([0,1]), np.array([1,1])))
+            print("Check3: ", lineRayIntersectionPoint(vor.vertices[v2], direction, np.array([1,0]), np.array([1,1])))
+            print("Check4: ", lineRayIntersectionPoint(vor.vertices[v2], direction, np.array([1,0]), np.array([0,0])))
+
+            # print(far_point)
 
             new_region.append(len(new_vertices))
             new_vertices.append(far_point.tolist())
@@ -118,51 +129,43 @@ def normalize_point(limits_box, p):
 
     return [dx, dy]
 
+def lineRayIntersectionPoint (rayOrigin, rayDirection, point1, point2):
+    v1 = rayOrigin - point1
+    v2 = point2 - point1
+    v3 = np.array([-rayDirection[1], rayDirection[0]])
+    t1 = np.cross(v2, v1) / np.dot(v2, v3)
+    t2 = np.dot(v1, v3) / np.dot(v2, v3)
+    if t1 >= 0.0 and t2 >= 0.0 and t2 <= 1.0:
+        return [rayOrigin + t1 * rayDirection]
+    return []
 
-with open("root.pkl", "rb") as f:
+with open("root_rrt2.pkl", "rb") as f:
     TreeNode.sim_state_class = F110GymSim
     root = TreeNode(TreeNode.sim_state_class())
     root = pickle.load(f)
     limits_box = [[0, 100], [-5, 5]]
     leaves = np.array(load_leaves(root, limits_box))
-    # print(leaves)
     vor = Voronoi(leaves)
-    # print(vor.vertices)
 
-    # fig = voronoi_plot_2d(vor)
-    # plt.ylim(0, 1)
-    # plt.xlim(0, 1)
-    # plt.show()
-    # vol = np.zeros(vor.npoints)
-    # print(voronoi_finite_polygons_2d(vor))
-    #
-    #
-    # for i, reg_num in enumerate(vor.point_region):
-    #     indices = vor.regions[reg_num]
-    #     if -1 in indices:  # some regions can be opened
-    #         print (indices)
-    #         vol[i] = np.inf
-    #     else:
-    #         vol[i] = ConvexHull(vor.vertices[indices]).volume
-    #     # print(leaves[i], vol[i])
-    # vol.sort()
-    # # print(vol)
-    #
+    regions, vertices = voronoi_finite_polygons_2d(vor, 1)
+    pts = MultiPoint([Point(i) for i in leaves])
+    mask = Polygon([[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]])
+    new_vertices = []
+    sm = 0
+    for region in regions:
+        polygon = vertices[region]
+        shape = list(polygon.shape)
+        shape[0] += 1
+        p = Polygon(np.append(polygon, polygon[0]).reshape(*shape)).intersection(mask)
+        poly = np.array(list(zip(p.boundary.coords.xy[0][:-1], p.boundary.coords.xy[1][:-1])))
+        sm+=ConvexHull(poly).volume
+        new_vertices.append(poly)
+        plt.fill(*zip(*poly), "brown", alpha=0.4, edgecolor='black')
 
-# plot
-regions, vertices = voronoi_finite_polygons_2d(vor, 1)
-print( "--")
-print (regions)
-print ("--")
-print (vertices)
 
-# colorize
-for region in regions:
-    polygon = vertices[region]
-    plt.fill(*zip(*polygon), alpha=0.4)
-print(type(leaves))
-plt.plot(leaves[:,0], leaves[:,1], 'ko')
-plt.xlim(0, 1)
-plt.ylim(0, 1)
+    plt.plot(leaves[:, 0], leaves[:, 1], 'ko')
+    plt.xlim(-1,2)
+    plt.ylim(-1,2)
 
-plt.show()
+    plt.title("Blast 2620 S3C 5009 P1")
+    plt.show()

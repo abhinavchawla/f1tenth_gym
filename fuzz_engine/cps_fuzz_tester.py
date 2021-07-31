@@ -362,13 +362,14 @@ def save_root(filename, root):
           f"{round(1000 * diff, 1)} ms to {filename}")
 
 class Coverage:
-    figure, axis = plt.subplots(2, 2)
+    figure, axis = plt.subplots(2, 3)
     def __init__(self):
         self.heights = []
         self.widths = []
         self.crashes = []
         self.max_dist =[]
         self.nodes = []
+        self.voronoi_areas = []
 
     def setType(self, strategy):
         if strategy == 'RRT':
@@ -381,12 +382,13 @@ class Coverage:
         print(self.color)
         print(self.label)
 
-    def add(self, height, width, crash, dist, node_cnt):
+    def add(self, height, width, crash, dist, node_cnt, voronoi_area):
         self.heights.append(height)
         self.widths.append(width)
         self.crashes.append(crash)
         self.max_dist.append(dist)
         self.nodes.append(node_cnt)
+        self.voronoi_areas.append(voronoi_area)
 
     def plot(self):
 
@@ -405,6 +407,8 @@ class Coverage:
 
         Coverage.axis[1, 1].plot(self.nodes, self.max_dist, color=self.color, label=self.label)
         Coverage.axis[1, 1].set_title("Max distance")
+        Coverage.axis[1, 2].plot(self.nodes, self.max_dist, color=self.color, label=self.label)
+        Coverage.axis[1, 2].set_title("Max distance")
         Coverage.axis[0,1].legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
 class TreeSearch:
@@ -455,7 +459,7 @@ class TreeSearch:
         obs_data = self.obs_data
         assert len(obs_data) >= 2, "need at least two coordinates to plot"
 
-        matplotlib.use('TkAgg') # set backend
+        # matplotlib.use('TkAgg') # set backend
 
         parent = os.path.dirname(os.path.realpath(__file__))
         p = os.path.join(parent, 'bak_matplotlib.mlpstyle')
@@ -604,8 +608,9 @@ class TreeSearch:
         max_dist = coverage.find_max_distance(self.root, 0)
         crashes = coverage.total_crashes(self.root)
         nodes = coverage.total_nodes(self.root)
-
-        self.root.coverage.add(height, width, crashes, max_dist, nodes)
+        voronoi_area = coverage.find_voronoi_std_dev(self.root)
+        print("Voronoi Area Std Dev: ", voronoi_area)
+        self.root.coverage.add(height, width, crashes, max_dist, nodes, voronoi_area)
         # print("Current Height: ", height)
         # print("Current Width: ", width)
         # print("Current Crashes: ", crashes)

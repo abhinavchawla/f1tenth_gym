@@ -309,11 +309,11 @@ def main():
     prefix_filename_1 = 'root_rrt'
     prefix_filename_2 = 'root_random'
 
-    for i in range(1):
+    for i in range(5):
         run_fuzz_testing(F110GymSim, seed=i, always_from_start=False, filename=prefix_filename_1+str(i)+'.pkl')
         run_fuzz_testing(F110GymSim, seed=i, always_from_start=True, filename=prefix_filename_2+str(i)+'.pkl')
 
-    for i in range(1):
+    for i in range(5):
         calculate_coverage(prefix_filename_1 + str(i)+'.pkl')
         calculate_coverage(prefix_filename_2 + str(i)+'.pkl')
     plt.tight_layout()
