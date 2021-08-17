@@ -362,7 +362,7 @@ def save_root(filename, root):
           f"{round(1000 * diff, 1)} ms to {filename}")
 
 class Coverage:
-    figure, axis = plt.subplots(2, 3)
+    figure, axis = plt.subplots(1,1)
     def __init__(self):
         self.heights = []
         self.widths = []
@@ -396,20 +396,20 @@ class Coverage:
         assert self.color is not None
         assert self.label is not None
 
-        Coverage.axis[0, 0].plot(self.nodes, self.heights, color=self.color, label=self.label)
-        Coverage.axis[0, 0].title.set_text("Heights")
-
-        Coverage.axis[0, 1].plot(self.nodes, self.widths, color=self.color, label=self.label)
-        Coverage.axis[0, 1].set_title("Widths")
-
-        Coverage.axis[1, 0].plot(self.nodes, self.crashes, color=self.color, label=self.label)
-        Coverage.axis[1, 0].title.set_text("Crashes")
-
-        Coverage.axis[1, 1].plot(self.nodes, self.max_dist, color=self.color, label=self.label)
-        Coverage.axis[1, 1].set_title("Max distance")
-        Coverage.axis[1, 2].plot(self.nodes, self.max_dist, color=self.color, label=self.label)
-        Coverage.axis[1, 2].set_title("Max distance")
-        Coverage.axis[0,1].legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        # Coverage.axis[0, 0].plot(self.nodes, self.heights, color=self.color, label=self.label)
+        # Coverage.axis[0, 0].title.set_text("Heights")
+        #
+        # Coverage.axis[0, 1].plot(self.nodes, self.widths, color=self.color, label=self.label)
+        # Coverage.axis[0, 1].set_title("Widths")
+        #
+        # Coverage.axis[1, 0].plot(self.nodes, self.crashes, color=self.color, label=self.label)
+        # Coverage.axis[1, 0].title.set_text("Crashes")
+        #
+        # Coverage.axis[1, 1].plot(self.nodes, self.max_dist, color=self.color, label=self.label)
+        # Coverage.axis[1, 1].set_title("Max distance")
+        Coverage.axis.plot(self.nodes, self.voronoi_areas, color=self.color, label=self.label)
+        Coverage.axis.set_title("Max Voronoi area")
+        Coverage.axis.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
 class TreeSearch:
     'performs and draws the tree search'
@@ -459,7 +459,7 @@ class TreeSearch:
         obs_data = self.obs_data
         assert len(obs_data) >= 2, "need at least two coordinates to plot"
 
-        # matplotlib.use('TkAgg') # set backend
+        matplotlib.use('TkAgg') # set backend
 
         parent = os.path.dirname(os.path.realpath(__file__))
         p = os.path.join(parent, 'bak_matplotlib.mlpstyle')
@@ -533,7 +533,7 @@ class TreeSearch:
     def animate(self, frame):
         'animate function for funcAnimation'
         self.get_coverage()
-        if coverage.total_nodes(self.root) > 100:
+        if coverage.total_nodes(self.root) > 400:
             plt.savefig(self.tree_filename+'.png')
             plt.close(self.fig)
         if frame > 0 and not self.paused:
@@ -611,11 +611,6 @@ class TreeSearch:
         voronoi_area = coverage.find_voronoi_std_dev(self.root)
         print("Voronoi Area Std Dev: ", voronoi_area)
         self.root.coverage.add(height, width, crashes, max_dist, nodes, voronoi_area)
-        # print("Current Height: ", height)
-        # print("Current Width: ", width)
-        # print("Current Crashes: ", crashes)
-        # print("Current max_dist: ", max_dist)
-        # print("Current nodes: ", nodes)
 
 
 def run_fuzz_testing(sim_state_class, seed=0, always_from_start=False, filename='root.pkl'):

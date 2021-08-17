@@ -62,12 +62,14 @@ class EnvRenderer(pyglet.window.Window):
         Returns:
             None
         """
-        conf = Config(sample_buffers=1,
-                      samples=4,
-                      depth_size=16,
-                      double_buffer=True)
-        super().__init__(width, height, config=conf, resizable=True, vsync=False, *args, **kwargs)
+        # automatically set correct config
+        display = pyglet.canvas.get_display()
+        screen = display.get_default_screen()
+        for config in screen.get_matching_configs(pyglet.gl.Config()):
+            if config.aux_buffers or config.accum_red_size:
+                conf = config
 
+        super().__init__(width, height, config=conf, resizable=True, vsync=False, *args, **kwargs)
         # gl init
         glClearColor(9/255, 32/255, 87/255, 1.)
 

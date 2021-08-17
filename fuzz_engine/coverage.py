@@ -65,26 +65,38 @@ def total_nodes(root):
 
 def find_voronoi_std_dev(root):
     limits_box = [[0, 100], [-5, 5]]
-    leaves = np.array(load_leaves(root, limits_box))
+    leaves = np.array(load_nodes(root, limits_box))
     try:
         vor = Voronoi(leaves)
 
-        regions, vertices = voronoi_finite_polygons_2d(vor, 1)
+        regions, vertices = voronoi_finite_polygons_2d(vor, 800)
         mask = Polygon([[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]])
         new_vertices = []
         voronoi_areas = []
         for region in regions:
-            polygon = vertices[region]
-            shape = list(polygon.shape)
-            shape[0] += 1
-            p = Polygon(np.append(polygon, polygon[0]).reshape(*shape)).intersection(mask)
-            poly = np.array(list(zip(p.boundary.coords.xy[0][:-1], p.boundary.coords.xy[1][:-1])))
-            voronoi_areas.append(ConvexHull(poly).volume)
-            new_vertices.append(poly)
-        return np.std(np.array(voronoi_areas))
-    except:
+            try:
+                polygon = vertices[region]
+                shape = list(polygon.shape)
+                shape[0] += 1
+                p = Polygon(np.append(polygon, polygon[0]).reshape(*shape)).intersection(mask)
+                poly = np.array(list(zip(p.boundary.coords.xy[0][:-1], p.boundary.coords.xy[1][:-1])))
+                voronoi_areas.append(ConvexHull(poly).volume)
+                new_vertices.append(poly)
+            except:
+                continue
+        print("SUM: ", sum(voronoi_areas))
+        return max(voronoi_areas)
+    except Exception as e:
+        print(e)
         return 0
 
+def load_nodes(root, limits_box):
+    nodes = []
+    if root.status == 'ok':
+        nodes.append(normalize_point(limits_box, root.obs))
+    for node in root.children.values():
+        nodes += load_nodes(node, limits_box)
+    return nodes
 
 def load_leaves(root, limits_box):
     if not root.children and root.status == 'ok':
@@ -143,7 +155,7 @@ def voronoi_finite_polygons_2d(vor, radius=None):
 
     center = vor.points.mean(axis=0)
     if radius is None:
-        radius = vor.points.ptp().max() * 2
+        radius = 100000
 
     # Construct a map containing all ridges for a given point
     all_ridges = {}
@@ -154,45 +166,48 @@ def voronoi_finite_polygons_2d(vor, radius=None):
     # print(all_ridges)
     # Reconstruct infinite regions
     for p1, region in enumerate(vor.point_region):
-        vertices = vor.regions[region]
+        try:
+            vertices = vor.regions[region]
 
-        if all([v >= 0 for v in vertices]):
-            # finite region
-            new_regions.append(vertices)
-            continue
-
-        # reconstruct a non-finite region
-        ridges = all_ridges[p1]
-        new_region = [v for v in vertices if v >= 0]
-
-        for p2, v1, v2 in ridges:
-            if v2 < 0:
-                v1, v2 = v2, v1
-            if v1 >= 0:
-                # finite ridge: already in the region
+            if all([v >= 0 for v in vertices]):
+                # finite region
+                new_regions.append(vertices)
                 continue
 
-            # Compute the missing endpoint of an infinite ridge
+            # reconstruct a non-finite region
+            ridges = all_ridges[p1]
+            new_region = [v for v in vertices if v >= 0]
 
-            t = vor.points[p2] - vor.points[p1]  # tangent
-            t /= np.linalg.norm(t)
-            n = np.array([-t[1], t[0]])  # normal
+            for p2, v1, v2 in ridges:
+                if v2 < 0:
+                    v1, v2 = v2, v1
+                if v1 >= 0:
+                    # finite ridge: already in the region
+                    continue
 
-            midpoint = vor.points[[p1, p2]].mean(axis=0)
-            direction = np.sign(np.dot(midpoint - center, n)) * n
+                # Compute the missing endpoint of an infinite ridge
 
-            far_point = vor.vertices[v2] + direction * radius
+                t = vor.points[p2] - vor.points[p1]  # tangent
+                t /= np.linalg.norm(t)
+                n = np.array([-t[1], t[0]])  # normal
 
-            new_region.append(len(new_vertices))
-            new_vertices.append(far_point.tolist())
+                midpoint = vor.points[[p1, p2]].mean(axis=0)
+                direction = np.sign(np.dot(midpoint - center, n)) * n
 
-        # sort region counterclockwise
-        vs = np.asarray([new_vertices[v] for v in new_region])
-        c = vs.mean(axis=0)
-        angles = np.arctan2(vs[:, 1] - c[1], vs[:, 0] - c[0])
-        new_region = np.array(new_region)[np.argsort(angles)]
+                far_point = vor.vertices[v2] + direction * radius
 
-        # finish
-        new_regions.append(new_region.tolist())
+                new_region.append(len(new_vertices))
+                new_vertices.append(far_point.tolist())
+
+            # sort region counterclockwise
+            vs = np.asarray([new_vertices[v] for v in new_region])
+            c = vs.mean(axis=0)
+            angles = np.arctan2(vs[:, 1] - c[1], vs[:, 0] - c[0])
+            new_region = np.array(new_region)[np.argsort(angles)]
+
+            # finish
+            new_regions.append(new_region.tolist())
+        except:
+            pass
 
     return new_regions, np.asarray(new_vertices)
