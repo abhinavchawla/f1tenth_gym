@@ -1,3 +1,5 @@
+from math import sqrt
+
 import numpy as np
 from scipy.spatial import Voronoi, ConvexHull
 from shapely.geometry import MultiPoint, Point, Polygon
@@ -63,6 +65,7 @@ def total_nodes(root):
         return nodes
 
 
+
 def find_voronoi_std_dev(root):
     limits_box = [[0, 100], [-5, 5]]
     leaves = np.array(load_nodes(root, limits_box))
@@ -97,6 +100,32 @@ def load_nodes(root, limits_box):
     for node in root.children.values():
         nodes += load_nodes(node, limits_box)
     return nodes
+
+def load_nodes_all(root, limits_box):
+    nodes = []
+    nodes.append(normalize_point(limits_box, root.obs))
+    for node in root.children.values():
+        nodes += load_nodes(node, limits_box)
+    return nodes
+
+
+def find_dist(node, node2):
+    return sqrt((node[0]-node2[0])*(node[0]-node2[0]) + (node[1]-node2[1])*(node[1]-node2[1]))
+
+
+def average_nearest_neighbour(root, limits_box):
+    nodes_lst = load_nodes_all(root, limits_box)
+    sm = 0
+    for node in nodes_lst:
+        minim_dist = np.inf
+        for node2 in nodes_lst:
+            if node!=node2:
+                minim_dist = min(find_dist(node, node2), minim_dist)
+        sm+=minim_dist
+    n = len(nodes_lst)
+    observed_mean_dist = sm/n
+    expected_mean_dist = 0.5/(sqrt(n))
+    return observed_mean_dist/expected_mean_dist
 
 def load_leaves(root, limits_box):
     if not root.children and root.status == 'ok':

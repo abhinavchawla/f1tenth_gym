@@ -533,7 +533,7 @@ class TreeSearch:
     def animate(self, frame):
         'animate function for funcAnimation'
         self.get_coverage()
-        if coverage.total_nodes(self.root) > 400:
+        if coverage.total_nodes(self.root) > 2000:
             plt.savefig(self.tree_filename+'.png')
             plt.close(self.fig)
         if frame > 0 and not self.paused:
@@ -608,7 +608,7 @@ class TreeSearch:
         max_dist = coverage.find_max_distance(self.root, 0)
         crashes = coverage.total_crashes(self.root)
         nodes = coverage.total_nodes(self.root)
-        voronoi_area = coverage.find_voronoi_std_dev(self.root)
+        voronoi_area = coverage.average_nearest_neighbour(self.root, self.obs_limits_box)
         print("Voronoi Area Std Dev: ", voronoi_area)
         self.root.coverage.add(height, width, crashes, max_dist, nodes, voronoi_area)
 
