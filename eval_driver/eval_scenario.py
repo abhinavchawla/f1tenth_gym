@@ -1,7 +1,8 @@
 """
 eval a specific scenario for overtaking
 """
-
+import pickle
+from math import sqrt
 from typing import List
 
 import time
@@ -93,7 +94,62 @@ class LidarDrawer:
 lidar_drawer = LidarDrawer()
 added_render_callback = False
 
-def eval_scenario(ego_start_tup, opp_start_tup, env, racetrack, overtake_timeout=60):
+
+def percent_completed(own_x, own_y):
+    'find the percent completed in the race just using the closest waypoint'
+
+    try:
+        with open("waypoints_gap.pkl", "rb") as f:
+            waypoints = pickle.load(f)
+            print(f"loaded {len(waypoints)} waypoints")
+    except FileNotFoundError:
+        print(f"no cached starting positions found at waypoints, re-running computation")
+    min_dist_sq = np.inf
+    rv = 0
+    num_waypoints =len(waypoints)
+    # min_dist_sq is the squared sum of the two legs of a triangle
+    # considering two waypoints at a time
+
+    for i in range(len(waypoints) - 2):
+        x1, y1 = waypoints[i]
+        x2, y2 = waypoints[i + 1]
+
+        dx1 = (x1 - own_x)
+        dy1 = (y1 - own_y)
+
+        dx2 = (x2 - own_x)
+        dy2 = (y2 - own_y)
+
+        dist_sq1 = dx1 * dx1 + dy1 * dy1
+        dist_sq2 = dx2 * dx2 + dy2 * dy2
+        dist_sq = dist_sq1 + dist_sq2
+
+        if dist_sq < min_dist_sq:
+            min_dist_sq = dist_sq
+            # 100 * min_index / num_waypoints
+
+            rv = 100 * i / num_waypoints
+
+            # add the fraction completed betwen the waypints
+            dist1 = sqrt(dist_sq1)
+            dist2 = sqrt(dist_sq2)
+            frac = dist1 / (dist1 + dist2)
+
+            assert 0.0 <= frac <= 1.0
+            rv += frac / num_waypoints
+
+    return rv
+
+def find_next_opp_state(percent, opp_start_states):
+    for i in range(len(opp_start_states)-1):
+        p1 = percent_completed(opp_start_states[i][0].state[0], opp_start_states[i][0].state[1])
+        p2 = percent_completed(opp_start_states[i+1][0].state[0],opp_start_states[i+1][0].state[1])
+        if p1 < percent < p2:
+            return i+1
+    return None
+
+
+def eval_scenario(ego_start_tup, opp_start_tup, env, racetrack, opp_start_states, overtake_timeout=60):
     """run an evaluation from the given positions
 
     returns one of: 'overtake', 'crash', 'overtake_timeout'
@@ -115,17 +171,15 @@ def eval_scenario(ego_start_tup, opp_start_tup, env, racetrack, overtake_timeout
     opp_racecar, opp_driver = opp_start_tup
     
     drivers = [deepcopy(ego_driver), deepcopy(opp_driver)]
-
     start_poses = np.array([
-            np.append(ego_racecar.state[0:2], ego_racecar.state[4]),
-            np.append(opp_racecar.state[0:2], ego_racecar.state[4])
+            np.array(ego_racecar),
+            np.append(opp_racecar.state[0:2], opp_racecar.state[4])
         ])
 
     obs, step_reward, done, info = env.reset(poses=start_poses)
     env.render(mode='human_fast')
 
     # move the vehicles into place
-    env.sim.agents[0] = deepcopy(ego_racecar)
     env.sim.agents[1] = deepcopy(opp_racecar)
 
     cur_frame = 0
@@ -133,7 +187,8 @@ def eval_scenario(ego_start_tup, opp_start_tup, env, racetrack, overtake_timeout
     rv = "overtake_timeout" # gets overwritten
     start = time.perf_counter()
     last_detected_in_back = False
-     
+    next_ego_start = None
+    next_opp_start = None
     while cur_frame < max_frames:
         cur_frame += 1
 
@@ -190,6 +245,12 @@ def eval_scenario(ego_start_tup, opp_start_tup, env, racetrack, overtake_timeout
         if last_detected_in_back and not detected_in_back and not detected_in_front:
             # passed opponent
             rv = "overtake"
+            next_ego_pose = (env.sim.agents[0].state[0], env.sim.agents[0].state[1], env.sim.agents[0].state[4])
+            next_ego_start = (next_ego_pose, ego_driver)
+            x = env.sim.agents[0].state[0]
+            y = env.sim.agents[0].state[1]
+            percent  = percent_completed(x,y)
+            next_opp_start = find_next_opp_state(percent, opp_start_states)
             break
 
         last_detected_in_back = detected_in_back
@@ -197,4 +258,4 @@ def eval_scenario(ego_start_tup, opp_start_tup, env, racetrack, overtake_timeout
     diff = time.perf_counter() - start
     print(f'{rv} in {round(diff, 1)} sec')
 
-    return rv
+    return rv, next_ego_start, next_opp_start

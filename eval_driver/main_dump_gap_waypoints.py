@@ -124,6 +124,8 @@ class GymRunner(object):
             if abs(obs['ang_vels_z'][0]) > 20:
                 crashed = True
                 done = True
+            if obs["lap_counts"]==1:
+                done = True
 
         print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time() - start)
 

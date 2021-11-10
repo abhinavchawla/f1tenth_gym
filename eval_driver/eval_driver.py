@@ -87,8 +87,19 @@ def compute_scores(ego_driver, opp_driver, num_overtake_scenarios):
     rv: Dict[str, List[int]] = defaultdict(list)
 
     start = time.perf_counter()
-    for i, (ego_start, opp_start) in enumerate(zip(ego_start_states, opp_start_states)):
-        result = eval_scenario(ego_start, opp_start, env, racetrack)
+    ego_start = (poses[1], ego_driver)
+    i=0
+    while i < len(opp_start_states):
+        opp_start = opp_start_states[i]
+        result, next_ego_state, next_opp_state = eval_scenario(ego_start, opp_start, env, racetrack, opp_start_states)
+        if next_ego_state is not None:
+            if next_opp_state is None:
+                break
+            i = next_opp_state
+            ego_start=next_ego_state
+        else:
+            i+=1
+            ego_start = (poses[1], ego_driver)
 
         assert not custom_score_text_list
         custom_score_text_list.append(result.capitalize())
