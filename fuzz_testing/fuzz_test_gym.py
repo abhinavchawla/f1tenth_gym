@@ -207,6 +207,53 @@ class F110GymSim(SimulationState):
 
         self.num_steps += 1
 
+    def step_partial_sim(self, cmd):
+        'step the simulation state'
+
+        assert not self.error
+        past_obs = self.get_obs()
+        for _ in range(10):
+
+            if self.first_step:
+                self.first_step = False
+
+                # reset again, to get obs
+                obs, _step_reward, done, _info = self.env.reset(self.start_positions)
+                speed, steer = self.ego_planner.plan(obs, 0)
+                self.next_cmds = [[steer, speed]]
+
+                if self.two_agents:
+                    opp_speed, opp_steer = self.opp_planner.plan(obs, 1)
+                    self.next_cmds.append([opp_steer, opp_speed])
+
+            assert self.next_cmds is not None
+            obs, _step_reward, done, _info = self.env.step(np.array(self.next_cmds))
+
+            if F110GymSim.render_on:
+                self.env.render(mode='human_fast')
+
+            if done:
+                self.error = True # crashed!
+                break
+
+            speed, steer = self.ego_planner.plan(obs, 0)
+            self.next_cmds = [[steer, speed]]
+
+            if self.two_agents:
+                opp_speed, opp_steer = self.opp_planner.plan(obs, 1)
+
+                if cmd == 'opp_slower':
+                    opp_speed *= 0.8
+                elif cmd == 'opp_faster':
+                    opp_speed *= 1.2
+
+                self.next_cmds.append([opp_steer, opp_speed])
+
+        current_obs = self.get_obs()
+        print(cmd, current_obs, past_obs)
+        return (current_obs-past_obs)/10
+
+
     def get_status(self):
         "get simulation status. element of ['ok', 'stop', 'error']"
 
