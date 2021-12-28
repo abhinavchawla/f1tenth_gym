@@ -51,6 +51,10 @@ class SimulationState(ABC):
         """do one step of the simulation (modifies self)"""
 
     @abstractmethod
+    def step_partial_sim(self, cmd, debug=False):
+        """do one step of the simulation (modifies self)"""
+
+    @abstractmethod
     def get_status(self):
         """get simulation status. element of ['ok', 'stop', 'error']
 
@@ -92,8 +96,16 @@ class SimulationState(ABC):
 
         if this not overridden (None is returned), all cmds will be tried
         """
-
-        return None
+        print("OBSSS",obs, rand_obs, cmd_options_list)
+        if len(cmd_options_list) == 1:
+            print("CMD CHOSEN(len=1)", cmd_options_list[0])
+            return cmd_options_list[0]
+        if rand_obs[1]>obs[1]:
+            print("CMD CHOSEN", cmd_options_list[1])
+            return cmd_options_list[1]
+        else:
+            print("CMD CHOSEN", cmd_options_list[0])
+            return cmd_options_list[0]
 
 class Artists:
     'artists for animating tree search'
@@ -108,7 +120,7 @@ class Artists:
         self.map_solid_lines = LineCollection([], lw=2, animated=True, color='k', zorder=1)
         map_ax.add_collection(self.map_solid_lines)
         self.artist_list.append(self.map_solid_lines)
-        
+
         self.rand_pt_marker, = ax.plot([], [], '--o', color='lime', lw=1, zorder=1)
         self.artist_list.append(self.rand_pt_marker)
 
@@ -161,7 +173,7 @@ class Artists:
 
         obs_solid_paths = self.obs_solid_lines.get_paths()
         map_solid_paths = self.map_solid_lines.get_paths()
-        
+
         sx, sy = node.obs[0:2]
         smapx, smapy = node.map_pos
 
@@ -240,7 +252,7 @@ class Artists:
             self.map_red_xs.set_data(*self.map_red_xs_data)
         else:
             assert type_str == 'black_x'
-            
+
             self.obs_black_xs_data[0].append(obs[0])
             self.obs_black_xs_data[1].append(obs[1])
             self.obs_black_xs.set_data(*self.obs_black_xs_data)
@@ -290,13 +302,27 @@ class TreeNode:
 
         if limits_box is not None and is_out_of_bounds(self.obs, limits_box):
             self.status = 'out_of_bounds'
-        
+
         self.parent: Optional[TreeNode] = parent
-        
+        self.velocity = self.find_velocity()
         self.children: Dict[str, TreeNode] = {}
         self.node_index = TreeNode.node_counter
         TreeNode.node_counter += 1
 
+    def find_velocity(self):
+        velocity = {}
+        if self.parent is not None:
+            displacement = self.obs-self.parent.obs
+            print(self.cmd_from_parent, self.obs, self.parent.obs)
+            v = displacement/100
+            velocity[self.cmd_from_parent] = v
+        if self.status == 'ok':
+            for cmd in TreeNode.sim_state_class.get_cmds():
+                if cmd != self.cmd_from_parent:
+                    cpy = deepcopy(self.state)
+                    velocity[cmd] = cpy.step_partial_sim(cmd)
+                    del cpy
+        return velocity
     def get_open_cmds(self) -> List[str]:
         """Get list of unexplored commands from this node"""
 
@@ -317,9 +343,9 @@ class TreeNode:
 
         # using blank string for join is fine as long as num commands < 10
         join_str = "" if len(all_cmds) < 10 else "."
-        
+
         cache_key = join_str.join(cmd_indices)
-        
+
         return cache_key
 
     def get_cmd_list(self) -> List[str]:
@@ -391,7 +417,7 @@ class TreeNode:
 
         if not allow_repeat_children:
             assert cmd not in self.children
-                            
+
         assert self.status == 'ok'
 
         obs_solid_paths = artists.obs_solid_lines.get_paths()
@@ -414,7 +440,7 @@ class TreeNode:
 
         if cmd in self.children:
             # cmd is already in children
-            old_child = self.children[cmd] 
+            old_child = self.children[cmd]
             old_child.node_index = child_node.node_index # update node index
 
             old_child.state = child_node.state
@@ -443,21 +469,23 @@ class TreeNode:
             codes = [Path.MOVETO, Path.LINETO]
             verts = [(cmapx, cmapy), (smapx, smapy)]
             map_solid_paths.append(Path(verts, codes))
+        
 
         if child_node.status == 'ok':# and child_node.state is not None:
             tree_search_obj.add_to_cache(child_node)
         else:
             child_node.state = None
+        return child_node
 
     def dist(self, p, q):
         'distance between two points'
 
         xscale = 1
         yscale = 1
-
-        if self.limits_box:
-            xscale = self.limits_box[0][1] - self.limits_box[0][0]
-            yscale = self.limits_box[1][1] - self.limits_box[1][0]
+        #
+        # if self.limits_box:
+        #     xscale = self.limits_box[0][1] - self.limits_box[0][0]
+        #     yscale = self.limits_box[1][1] - self.limits_box[1][0]
 
         dx = (p[0] - q[0]) / xscale
         dy = (p[1] - q[1]) / yscale
@@ -469,14 +497,14 @@ class TreeNode:
 
         returns node, distance
         """
-        
+
         min_node = None
         min_dist = np.inf
 
         if self.status == "error":
             min_dist = np.linalg.norm(self.map_pos - map_pt)
             min_node = self
-            
+
         for c in self.children.values():
             node, dist = c.find_closest_map_node(map_pt)
 
@@ -511,6 +539,48 @@ class TreeNode:
 
         return min_node, min_dist
 
+    def project_vector(self,x,y):
+        """project vector x,y onto the map plane"""
+        return y*(np.dot(x,y)/np.dot(y,y))
+
+    def t2go(self, curr_pt, goal_pt,cmd):
+        '''
+        returns the time to go from curr_pt to goal_pt
+        '''
+        displacement = np.array(goal_pt) - np.array(curr_pt)
+        projected_velocity = self.project_vector(displacement, self.velocity[cmd])
+        return np.linalg(displacement) / np.linalg(projected_velocity)
+
+    def find_closest_node_new(self, obs_pt, filter_func: Callable[..., bool]):
+        """recursively find the node closest to the passed in observation point
+
+        filter_func selects if a node should be considered, for example you can use
+            open_node_filter_func or click_filter_func
+
+        returns node, distance
+        """
+
+        min_node = None
+        min_dist = np.inf
+        min_cmd = None
+
+        if filter_func(self):
+            for cmd in self.children:
+                if cmd not in self.get_open_cmds():
+                    min_dist = self.t2go(self.obs, obs_pt)
+                    min_node = self
+                    min_cmd = cmd
+
+        for c in self.children.values():
+            node, dist, cmd = c.find_closest_node_new(obs_pt, filter_func)
+
+            if dist < min_dist:
+                min_node = node
+                min_dist = dist
+                min_cmd = cmd
+
+        return min_node, min_dist, min_cmd
+
 def random_point(rng, obs_data):
     'generate random point in range for rrt'
 
@@ -519,7 +589,7 @@ def random_point(rng, obs_data):
 
     for r, odata in zip(randvec, obs_data):
         lb, ub = odata[1:3]
-        
+
         x = lb + r * (ub - lb)
         rv.append(x)
 
@@ -531,17 +601,19 @@ class TreeSearch:
     def __init__(self, seed, nominal, always_from_start, sim_state, max_nodes, cache_size):
         self.always_from_start = always_from_start
         self.cur_node = None # used if always_from_start = True
+        self.cur_node_rrt = None # Used for no save RRT
+        self.rand_pt = None # Used for no save RRT
 
         self.rng = np.random.default_rng(seed=seed)
         self.last_save_count = 0
 
         rrt = 'rrt' if not always_from_start else 'rand'
-        
+
         if nominal:
             rrt = 'nominal'
             always_from_start = False
             TreeNode.sim_state_class.set_nominal()
-        
+
         classname = sim_state.get_pickle_name()
 
         self.tree_filename = f'cache/root_{classname}_{rrt}_{seed}.pkl'
@@ -551,7 +623,7 @@ class TreeSearch:
         # values are guaranteed to have sim_state != None
         self.node_cache: Dict[str, TreeNode] = {}
         self.cache_size = cache_size
-        
+
         self.artists = None
 
         self.obs_data = TreeNode.sim_state_class.get_obs_data()
@@ -579,20 +651,20 @@ class TreeSearch:
         plt.style.use(['bmh', p])
 
         self.fig, ax_list = plt.subplots(1, 2, figsize=(14, 8))
-        
+
         xlim = obs_data[0][1:3]
         ylim = obs_data[1][1:3]
 
         self.ax = ax_list[0]
         self.map_ax = ax_list[1]
-        
+
         #self.ax = plt.axes(xlim=(xlim[0], xlim[1]), ylim=(ylim[0], ylim[1]))
         self.ax.set_xlim(xlim[0], xlim[1])
         self.ax.set_ylim(ylim[0], ylim[1])
 
         self.map_ax.set_xlim(-80, 80)
         self.map_ax.set_ylim(-80, 80)
-        
+
         self.ax.set_xlabel(obs_data[0][0])
         self.ax.set_ylabel(obs_data[1][0])
 
@@ -600,7 +672,7 @@ class TreeSearch:
         self.map_ax.set_ylabel("Map Y")
 
         plt.subplots_adjust(bottom=0.2)
-        
+
         self.bstart = Button(plt.axes([0.7, 0.05, 0.1, 0.075]), 'Start/Stop')
         self.bstart.on_clicked(self.button_start_stop)
 
@@ -629,9 +701,9 @@ class TreeSearch:
 
         if node.state is None:
             node.reconstruct_state(self)
-            
+
         state = deepcopy(node.state)
-        
+
         for cmd in cmds:
             state.step_sim(cmd)
 
@@ -818,32 +890,33 @@ class TreeSearch:
     def compute_next_point_rrt(self):
         """compute next point using rrt"""
 
-        # RRT-like strategy
-        rand_pt = random_point(self.rng, self.obs_data)
+         # RRT-like strategy
+        if self.cur_node_rrt is None or self.cur_node_rrt is self.root or self.cur_node_rrt.status != 'ok' or self.rand_pt is None or self.root.dist(self.rand_pt, self.cur_node_rrt.obs) > self.root.dist(self.rand_pt, self.cur_node_rrt.parent.obs):
+            self.rand_pt = random_point(self.rng, self.obs_data)
+            print("Random Point", self.rand_pt)
 
-        # find closest point in tree
-        node, _ = self.root.find_closest_node(rand_pt, open_node_filter_func)
+            # find closest point in tree
+            self.cur_node_rrt, _ = self.root.find_closest_node(self.rand_pt, open_node_filter_func)
 
-        if node is None:
+        if self.cur_node_rrt is None:
             print("Closest node was None! Full tree was expanded. Paused.")
             self.paused = True
         else:
-            self.artists.update_rand_pt_marker(rand_pt, node.obs)
+            self.artists.update_rand_pt_marker(self.rand_pt, self.cur_node_rrt.obs)
+            print("Closest node", self.cur_node_rrt.obs)
+            all_cmds = self.cur_node_rrt.get_open_cmds()
 
-            all_cmds = node.get_open_cmds()
 
-            # if there's only one choice, don't nccd to filter
-            if len(all_cmds) == 1:
-                expand_cmd = None
-            else:
-                expand_cmd = TreeNode.sim_state_class.select_best_cmd(node.obs, rand_pt, all_cmds)
-
+            expand_cmd = TreeNode.sim_state_class.select_best_cmd(self.cur_node_rrt.obs, self.rand_pt, all_cmds)
+            print("expand_cmd", expand_cmd)
             if expand_cmd is not None:
-                node.expand_child(self, expand_cmd)
+                self.cur_node_rrt = self.cur_node_rrt.expand_child(self, expand_cmd)
+                print("NEW STATE", self.cur_node_rrt.obs)
             else:
                 for expand_cmd in all_cmds:
-                    node.expand_child(self, expand_cmd)
+                    self.cur_node_rrt.expand_child(self, expand_cmd)
 
+       
     def compute_next_point_from_start(self):
         """compute next point using always-from-start strategy"""
 
@@ -855,14 +928,14 @@ class TreeSearch:
             self.cur_node = self.root
 
         use_saved_state_optimization = False
-            
+
         while True:
             cmd_list = TreeNode.sim_state_class.get_cmds()
             cmd = cmd_list[self.rng.integers(len(cmd_list))]
 
             if not use_saved_state_optimization:
                 break # replay the state, possibly multiple times
-            
+
             if cmd in self.cur_node.children:
                 self.cur_node = self.cur_node.children[cmd]
             elif self.cur_node.status != 'ok':
@@ -882,6 +955,7 @@ class TreeSearch:
 
         if self.cur_node is None:
             assert not self.always_from_start
+            # self.compute_next_point_rrt()
             self.compute_next_point_rrt()
         else:
             assert self.always_from_start
@@ -945,7 +1019,7 @@ def click_filter_func(tree_node: TreeNode) -> bool:
     """filter function for find_closest_node, which chooses nodes that can be clicked on"""
 
     # currently this is not ok nodes or leaves
-    
+
     rv = False
 
     if tree_node.status == "error" or not tree_node.children:
@@ -953,7 +1027,7 @@ def click_filter_func(tree_node: TreeNode) -> bool:
 
     return rv
 
-def run_fuzz_testing(sim_state, seed=0, nominal=False, always_from_start=False, max_nodes=1023, cache_size=sys.maxsize,
+def run_fuzz_testing(sim_state, seed=10, nominal=False, always_from_start=False, max_nodes=1023, cache_size=sys.maxsize,
                      load_progress_from_file=False):
     'run fuzz testing with the given simulation state class'
 

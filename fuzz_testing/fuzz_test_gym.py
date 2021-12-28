@@ -18,8 +18,8 @@ from matplotlib.image import BboxImage
 from matplotlib.transforms import Bbox, TransformedBbox
 
 from f110_gym.envs import F110Env
+from fuzz_test_generic_no_save_rrt import SimulationState, run_fuzz_testing
 
-from fuzz_test_generic import SimulationState, run_fuzz_testing
 
 class F110GymSim(SimulationState):
     'simulation state for fuzzing'
