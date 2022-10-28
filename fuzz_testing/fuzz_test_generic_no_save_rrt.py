@@ -292,7 +292,7 @@ class TreeNode:
     def __init__(self, state: SimulationState, cmd_from_parent=None, parent=None, limits_box=None):
         assert TreeNode.sim_state_class is not None, "TreeNode.sim_state_class should be set first"
         
-        self.state: Optional[SimulationState] = state
+        # self.state: Optional[SimulationState] = state
         self.obs: np.ndarray = state.get_obs()
         self.map_pos: np.ndarray = state.get_map_pos()
         
@@ -304,7 +304,7 @@ class TreeNode:
             self.status = 'out_of_bounds'
 
         self.parent: Optional[TreeNode] = parent
-        self.velocity = self.find_velocity()
+        # self.velocity = self.find_velocity()
         self.children: Dict[str, TreeNode] = {}
         self.node_index = TreeNode.node_counter
         TreeNode.node_counter += 1
@@ -369,43 +369,7 @@ class TreeNode:
 
         return count
 
-    def reconstruct_state(self, tree_search_obj):
-        """reconstruct self.state"""
 
-        assert self.state is None
-
-        cur_node = self
-        node_list = []
-
-        while True:
-            node_list.insert(0, cur_node)
-
-            # root should always have state
-            assert cur_node.parent is not None
-            cur_node = cur_node.parent
-
-            if cur_node.state is not None:
-                break
-
-        # replay cmd_list starting from node, inserting into cache if needed
-        cur_state = deepcopy(cur_node.state)
-
-        for node in node_list:
-            cmd = node.cmd_from_parent
-
-            cur_state.step_sim(cmd)
-
-            cur_obs = cur_state.get_obs()
-
-            assert np.allclose(cur_obs, node.obs)
-            assert cur_state.get_status() == 'ok'
-
-            # avoid a copy for self
-            node.state = cur_state if node is self else deepcopy(cur_state)
-
-            tree_search_obj.add_to_cache(node)
-
-        assert self.state is not None
 
     def expand_child(self, tree_search_obj, cmd, allow_repeat_children=False):
         """expand the given child of this node"""
@@ -426,17 +390,9 @@ class TreeNode:
         sx, sy = self.obs[0:2]
         smapx, smapy = self.map_pos
 
-        # reconstruct self.state if it doesn't exist
-        if self.state is None:
-            self.reconstruct_state(tree_search_obj)
+        tree_search_obj.state.step_sim(cmd)
 
-        assert self.state is not None
-
-        child_state = deepcopy(self.state)
-
-        child_state.step_sim(cmd)
-
-        child_node = TreeNode(child_state, cmd_from_parent=cmd, parent=self, limits_box=obs_limits_box)
+        child_node = TreeNode(tree_search_obj.state, cmd_from_parent=cmd, parent=self, limits_box=obs_limits_box)
 
         if cmd in self.children:
             # cmd is already in children
@@ -471,10 +427,10 @@ class TreeNode:
             map_solid_paths.append(Path(verts, codes))
         
 
-        if child_node.status == 'ok':# and child_node.state is not None:
-            tree_search_obj.add_to_cache(child_node)
-        else:
-            child_node.state = None
+        # if child_node.status == 'ok':# and child_node.state is not None:
+        #     tree_search_obj.add_to_cache(child_node)
+        # else:
+        #     child_node.state = None
         return child_node
 
     def dist(self, p, q):
@@ -637,13 +593,55 @@ class TreeSearch:
         self.map_ax = None
         self.init_plot()
 
+        self.state = sim_state
+        self.env = sim_state.env
+        self.ego_planner = sim_state.ego_planner
+        self.opp_planner = sim_state.opp_planner
+        self.start_positions = sim_state.start_positions
+
+    def env_reset(self):
+        self.env.reset(self.start_positions)
+
+    def reconstruct_state(self, cur_node):
+        """reconstruct self.state"""
+
+        # assert self.state is None
+
+        node_list = []
+        while True:
+            if cur_node == self.root:
+                break
+            node_list.insert(0, cur_node)
+
+            # root should always have state
+            # assert cur_node.parent is not None
+            cur_node = cur_node.parent
+        self.state.env_reset()
+        # replay cmd_list starting from node, inserting into cache if needed
+        for node in node_list:
+            cmd = node.cmd_from_parent
+
+            self.state.step_sim(cmd)
+
+            cur_obs = self.state.get_obs()
+            print("Comparision,", cur_obs, node.obs, cmd)
+            assert np.allclose(cur_obs, node.obs,atol=0.001)
+            assert self.state.get_status() == 'ok'
+
+            # avoid a copy for self
+            # node.state = cur_state if node is self else deepcopy(cur_state)
+
+            # self.add_to_cache(node)
+
+        assert self.state is not None
+
     def init_plot(self):
         'initalize plotting'
 
         obs_data = self.obs_data
         assert len(obs_data) >= 2, "need at least two coordinates to plot"
 
-        matplotlib.use('TkAgg') # set backend
+        # matplotlib.use('TkAgg') # set backend
 
         parent = os.path.dirname(os.path.realpath(__file__))
         p = os.path.join(parent, 'bak_matplotlib.mlpstyle')
@@ -890,6 +888,8 @@ class TreeSearch:
     def compute_next_point_rrt(self):
         """compute next point using rrt"""
 
+        if self.cur_node_rrt:
+            print("Checking status of: ",self.cur_node_rrt.obs, self.cur_node_rrt.status)
          # RRT-like strategy
         if self.cur_node_rrt is None or self.cur_node_rrt is self.root or self.cur_node_rrt.status != 'ok' or self.rand_pt is None or self.root.dist(self.rand_pt, self.cur_node_rrt.obs) > self.root.dist(self.rand_pt, self.cur_node_rrt.parent.obs):
             self.rand_pt = random_point(self.rng, self.obs_data)
@@ -897,7 +897,8 @@ class TreeSearch:
 
             # find closest point in tree
             self.cur_node_rrt, _ = self.root.find_closest_node(self.rand_pt, open_node_filter_func)
-
+            print("Closest node: ",self.cur_node_rrt.obs)
+            self.reconstruct_state(self.cur_node_rrt)
         if self.cur_node_rrt is None:
             print("Closest node was None! Full tree was expanded. Paused.")
             self.paused = True
@@ -1027,7 +1028,7 @@ def click_filter_func(tree_node: TreeNode) -> bool:
 
     return rv
 
-def run_fuzz_testing(sim_state, seed=10, nominal=False, always_from_start=False, max_nodes=1023, cache_size=sys.maxsize,
+def run_fuzz_testing(sim_state, seed=100, nominal=False, always_from_start=False, max_nodes=1023, cache_size=sys.maxsize,
                      load_progress_from_file=False):
     'run fuzz testing with the given simulation state class'
 

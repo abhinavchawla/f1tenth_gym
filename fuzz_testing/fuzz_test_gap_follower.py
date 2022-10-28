@@ -110,7 +110,7 @@ class GapFollowerDriver(Driver):
 def main():
     'main entry point'
 
-    load_progress_from_file = True
+    load_progress_from_file = False
     
     fuzz_test_gym(GapFollowerDriver, use_rrt=True, max_nodes=2000, load_progress_from_file=load_progress_from_file)
 

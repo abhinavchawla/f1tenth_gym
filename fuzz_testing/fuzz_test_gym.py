@@ -1,7 +1,7 @@
 '''
 Interface for fuzz tester using gym environment
 '''
-
+from copy import deepcopy
 from typing import Tuple
 import time
 import sys
@@ -26,7 +26,7 @@ class F110GymSim(SimulationState):
 
     render_on = True
     map_config_dict = None
-    pool = multiprocessing.Pool(2) # for parallel execution of planners
+    # pool = multiprocessing.Pool(2) # for parallel execution of planners
     obs_limits = [[0, 95], [-5.0, 5.0]]
     cmds: Tuple[str, ...] = ('opp_faster', 'opp_slower')
 
@@ -58,6 +58,9 @@ class F110GymSim(SimulationState):
         return ('Ego Completed Percent', l1, u1), ('Opponent Behind Percent', l2, u2)
 
     def __init__(self, ego_planner, opp_planner, use_lidar, config_file):
+        self.init_ego_planner = deepcopy(ego_planner)
+        self.init_opp_planner = deepcopy(opp_planner)
+
         self.ego_planner = ego_planner
         two_agents = F110GymSim.two_agents
         self.two_agents = two_agents
@@ -160,9 +163,17 @@ class F110GymSim(SimulationState):
     def render(self):
         'display visualization'
 
-        self.env.render(mode='human')
+        self.env.render(mode='human_fast')
         time.sleep(0.1)
-            
+
+
+    def env_reset(self):
+        self.env.reset(self.start_positions)
+        self.ego_planner = deepcopy(self.init_ego_planner)
+        self.opp_planner = deepcopy(self.init_opp_planner)
+        self.error = False
+        self.first_step = True
+
     def step_sim(self, cmd):
         'step the simulation state'
 

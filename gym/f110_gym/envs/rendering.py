@@ -68,7 +68,7 @@ class EnvRenderer(pyglet.window.Window):
         for config in screen.get_matching_configs(pyglet.gl.Config()):
             if config.aux_buffers or config.accum_red_size:
                 conf = config
-
+        conf=None
         super().__init__(width, height, config=conf, resizable=True, vsync=False, *args, **kwargs)
 
         # gl init
